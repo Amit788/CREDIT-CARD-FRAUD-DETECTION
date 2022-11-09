@@ -1,0 +1,270 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# Import all required libraries and dependencies for dataframe and machine learning
+library(dplyr) # utilize for data manipulation
+library(stringr) # utilize for data manipulation
+library(caret) # utilize for sampling
+library(caTools) # utilize to split train/test data
+library(ggplot2) # utilize for visualization
+library(corrplot) # utilize for correlations
+library(DMwR) # utilize in upsampling (SMOTE)
+library(ROSE) # utilize in upsampling (ROSE)
+library(rpart) # utilize in decision tree model
+library(Rborist) # utilize in random forest model
+library(xgboost) # utilize in xgboost model
+library(tidyverse)
+library(tidyr)
+library(gbm)
+library(e1071)
+library(class)
+library(ROCR)
+library(randomForest)
+library(reshape2)
+
+```
+```{r}
+# Worthy to note that the version R did not contain the package DMwR so we have to use one of the packages in archive.
+
+install.packages('https://cran.r-project.org/src/contrib/Archive/DMwR/DMwR_0.4.1.tar.gz', repos = NULL, type="source")
+
+```
+
+```{r}
+# Instruction for Grader to download the files including the dataset from my Google Drive and just set the Working directory. Everything else should be done for them.
+
+df =read.csv("F:\\ml_project\\Credit Card Fraud Detection\\creditcard.csv")
+```
+
+
+```{r}
+# We first look at top 6 rows of the dataframe. 
+head(df)
+```
+
+
+```{r}
+#  We then use str to know more about the dataframe and its constituents.
+str(df)
+
+```
+
+
+```{r}
+summary(df)
+```
+
+
+```{r}
+# Perform basic data cleansing by checking for nulls in the dataset.
+colSums(is.na(df))
+```
+# Observed no null values and hence no null treatment is required
+
+```{r}
+# The following code will convert our dependent variable (Class) to a factor.
+df$Class = factor(df$Class)
+table(df$Class)
+
+```
+```{r}
+prop.table(table(df$Class))
+```
+
+
+```{r}
+#Remove 'Time' variable
+df <- df[,-1]
+```
+
+
+```{r}
+#Change Class variable to factor
+df$Class <- as.factor(df$Class)
+levels(df$Class)  <- c("Legal", "Fraud")
+```
+
+
+```{r}
+#Scale numeric variables
+df[,-30] <- scale(df[,-30])
+head(df)
+```
+
+
+```{r}
+# Split dataset into train and test sets in 70:30 ratio respectively
+
+set.seed(42)
+split <- sample.split(df$Class, SplitRatio = 0.7)
+train <-  subset(df, split == TRUE)
+test <- subset(df, split == FALSE)
+```
+
+
+```{r}
+# Create Original Train Set
+table(train$Class)
+```
+
+
+```{r}
+# Create Under-sampling Train Set
+
+set.seed(42)
+downsamp_train <- downSample(x = train[, -ncol(train)], y = train$Class)
+table(downsamp_train$Class) 
+```
+
+```{r}
+# Create Over-sampling Train Set
+
+set.seed(42)
+upsamp_train <- upSample(x = train[, -ncol(train)], y = train$Class)
+table(upsamp_train$Class) 
+
+```
+
+```{r}
+# Create SMOTE Train Set
+
+set.seed(42)
+smote_train <- SMOTE(Class ~ ., data  = train)
+table(smote_train$Class) 
+```
+
+
+```{r}
+# Create ROSE Train Set
+
+set.seed(42)
+rose_train <- ROSE(Class ~ ., data  = train)$data 
+table(rose_train$Class)
+```
+# CART Method: Calculate AUC using Original Train Dataset
+
+```{r}
+# CART Model Performance on original imbalanced dataset
+
+set.seed(42)
+original_fit <- rpart(Class ~ ., data = train)
+
+```
+
+```{r}
+#Evaluate Model Performance on test set
+
+pred_original  <- predict(original_fit, newdata = test, method = "class")
+ROSE::roc.curve(test$Class, pred_original[,2], plotit = TRUE)
+
+```
+# CART Method: Calculate AUC using Under-sampled Train Dataset
+```{r}
+
+
+set.seed(42)
+# Build down-sampled model
+downsample_fit <- rpart(Class ~ ., data = downsamp_train)
+predict_down <- predict(downsample_fit, newdata = test)
+print('Fitting downsampled model to test data')
+ROSE::roc.curve(test$Class, predict_down[,2], plotit = TRUE)
+
+```
+
+# CART Method: Calculate AUC using Over-sampled Train Dataset
+```{r}
+
+
+set.seed(42)
+# Build up-sampled model
+upsamp_fit <- rpart(Class ~ ., data = upsamp_train)
+predict_up <- predict(upsamp_fit, newdata = test)
+print('Fitting upsampled model to test data')
+ROSE::roc.curve(test$Class, predict_up[,2], plotit = TRUE)
+```
+
+#CART Method: Calculate AUC using SMOTE sampled Train Dataset
+```{r}
+
+
+set.seed(42)
+# train the models
+smote_fit <- rpart(Class ~ ., data = smote_train)
+pred_smote <- predict(smote_fit, newdata = test)
+print('Fitting smote model to test data')
+#try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, pred_smote[,2], plotit = TRUE)
+```
+
+# CART Method: Calculate AUC using ROSE sampled Train Dataset
+```{r}
+set.seed(42)
+# # train the models. Build rose model
+rose_fit <- rpart(Class ~ ., data = rose_train)
+pred_rose <- predict(rose_fit, newdata = test)
+print('Fitting rose model to test data')
+# try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, pred_rose[,2], plotit = TRUE)
+```
+# Logistic Regression (GLM) Model
+
+```{r}
+# train the models
+
+fit_glm <- glm(Class ~ ., data = upsamp_train, family = 'binomial')
+predict_glm <- predict(fit_glm, newdata = test, type = 'response')
+# try and predict an outcome from the test set
+
+ROSE::roc.curve(test$Class, predict_glm, plotit = TRUE)
+```
+# Random Forest (RF Fit) Model
+```{r}
+# train the models
+
+x = upsamp_train[,-30]
+y = upsamp_train[,30]
+fit_rf <- Rborist(x, y, ntree = 1000, minNode = 21, maxLeaf = 12)
+predict_rf <- predict(fit_rf, test[,-30], ctgCensus = "prob")
+prob <- predict_rf$prob
+# try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, prob[,2], plotit = TRUE)
+
+```
+
+# xgboost (XGB Fit) Model
+```{r}
+# train the models
+labels <- upsamp_train$Class
+y <- recode(labels, "Legal" = 0, "Fraud" = 1)
+xgb <- xgboost(data = data.matrix(upsamp_train[,-30]), 
+               label = y,
+               eta = 0.1,
+               gamma = 0.1,
+               max_depth = 10, 
+               nrounds = 400, 
+               objective = "binary:logistic",
+               colsample_bytree = 0.5,
+               verbose = 0,
+               nthread = 8,
+               seed = 42
+)
+predict_xgb <- predict(xgb, data.matrix(test[,-30]))
+#try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, predict_xgb, plotit = TRUE)
+```
+
+# Feature Importance
+```{r}
+# XGB can also automatically provide estimates of feature importance from a trained predictive model. 
+
+# Feature importance scores can provide insight into the dataset. 
+
+# This means we could save disk space and computation time by only training the model on the most correlated/important variables.
+```
+
+
+
+
